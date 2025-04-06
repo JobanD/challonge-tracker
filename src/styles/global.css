@@ -1,0 +1,92 @@
+:root {
+    color-scheme: light dark;
+    --bg: #f9f9f9;
+    --text: #222;
+    --card-bg: #fff;
+    --border: #eee;
+    --hover: #fafafa;
+    --accent: #0077cc;
+}
+
+body.dark {
+    --bg: #121212;
+    --text: #f1f1f1;
+    --card-bg: #1e1e1e;
+    --border: #333;
+    --hover: #1a1a1a;
+    --accent: #66aaff;
+}
+
+body {
+    margin: 0;
+    padding: 2rem;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: system-ui, sans-serif;
+    transition:
+        background-color 0.2s ease,
+        color 0.2s ease;
+}
+
+h1,
+h2 {
+    color: var(--text);
+}
+
+a {
+    color: var(--accent);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    background: var(--card-bg);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
+    border-radius: 6px;
+    overflow-x: auto;
+}
+
+th,
+td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+th {
+    background: var(--hover);
+}
+
+tr:hover {
+    background: var(--hover);
+}
+
+section {
+    margin-bottom: 3rem;
+}
+
+nav ul {
+    list-style: none;
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding-left: 0;
+    margin: 1rem 0 2rem 0;
+}
+
+nav a {
+    background: var(--card-bg);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+}
+
+nav a:hover {
+    background: var(--hover);
+}
+
+/* Responsive table container */
+.table-container {
+    overflow-x: auto;
+}

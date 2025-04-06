@@ -1,0 +1,163 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { canonicalName, titleCase } from "../utils/players";
+const auth = btoa(
+    `${import.meta.env.CHALLONGE_USERNAME}:${import.meta.env.CHALLONGE_API_KEY}`,
+);
+
+const tournamentsRes = await fetch(
+    "https://api.challonge.com/v1/tournaments.json",
+    {
+        headers: {
+            Authorization: `Basic ${auth}`,
+            Accept: "application/json",
+        },
+    },
+);
+
+const tournaments = await tournamentsRes.json();
+
+const wjetTournaments = tournaments.filter((t) =>
+    t.tournament.name.toLowerCase().includes("wjet"),
+);
+
+const enriched = await Promise.all(
+    wjetTournaments.map(async (t) => {
+        const tid = t.tournament.id;
+
+        const [participantsRes, matchesRes] = await Promise.all([
+            fetch(
+                `https://api.challonge.com/v1/tournaments/${tid}/participants.json`,
+                {
+                    headers: {
+                        Authorization: `Basic ${auth}`,
+                        Accept: "application/json",
+                    },
+                },
+            ),
+            fetch(
+                `https://api.challonge.com/v1/tournaments/${tid}/matches.json`,
+                {
+                    headers: {
+                        Authorization: `Basic ${auth}`,
+                        Accept: "application/json",
+                    },
+                },
+            ),
+        ]);
+
+        const participants = await participantsRes.json();
+        const matches = await matchesRes.json();
+
+        const idToName = Object.fromEntries(
+            participants.map((p) => [p.participant.id, p.participant.name]),
+        );
+
+        const stats: Record<
+            string,
+            {
+                name: string;
+                matches: number;
+                wins: number;
+                losses: number;
+                rank: number | null;
+            }
+        > = {};
+
+        matches.forEach((m) => {
+            const { player1_id, player2_id, winner_id } = m.match;
+
+            [player1_id, player2_id].forEach((pid) => {
+                if (!stats[pid]) {
+                    stats[pid] = {
+                        name: idToName[pid] ?? `Unknown (${pid})`,
+                        matches: 0,
+                        wins: 0,
+                        losses: 0,
+                        rank: null,
+                    };
+                }
+                stats[pid].matches += 1;
+            });
+
+            if (winner_id && stats[winner_id]) stats[winner_id].wins += 1;
+
+            const loser_id = [player1_id, player2_id].find(
+                (pid) => pid !== winner_id,
+            );
+            if (loser_id && stats[loser_id]) stats[loser_id].losses += 1;
+        });
+
+        participants.forEach((p) => {
+            const pid = p.participant.id;
+            const name = idToName[pid];
+            const rank = p.participant.final_rank ?? null;
+
+            const stat = Object.values(stats).find((s) => s.name === name);
+            if (stat) {
+                stat.rank = rank;
+            }
+        });
+
+        const winner = participants.find((p) => p.participant.final_rank === 1);
+        const winnerName = winner
+            ? canonicalName(winner.participant.name)
+            : null;
+
+        return {
+            name: t.tournament.name,
+            stats: Object.values(stats).sort((a, b) => {
+                if (a.rank === null) return 1;
+                if (b.rank === null) return -1;
+                return a.rank - b.rank;
+            }),
+            winner: winnerName,
+        };
+    }),
+);
+---
+
+<Layout>
+    <html lang="en">
+        <head><title>WJET Tournaments</title></head>
+        <body>
+            <h1>WJET Tournaments</h1>
+            <a href="/">← Back to Home</a>
+
+            {
+                enriched.map((t) => (
+                    <section style="margin-bottom: 2rem;">
+                        <h2>{t.name}</h2>
+                        <p>
+                            <strong>Winner:</strong>{" "}
+                            {t.winner ? titleCase(t.winner) : "Unknown"}
+                        </p>
+
+                        <table border="1" cellpadding="6">
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Player</th>
+                                    <th>Matches</th>
+                                    <th>Wins</th>
+                                    <th>Losses</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {t.stats.map((p) => (
+                                    <tr>
+                                        <td>{p.rank ?? "-"}</td>
+                                        <td>{titleCase(p.name)}</td>
+                                        <td>{p.matches}</td>
+                                        <td>{p.wins}</td>
+                                        <td>{p.losses}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </section>
+                ))
+            }
+        </body>
+    </html>
+</Layout>

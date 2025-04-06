@@ -1,11 +1,135 @@
 ---
-import Welcome from '../components/Welcome.astro';
-import Layout from '../layouts/Layout.astro';
+import Layout from "../layouts/Layout.astro";
+import Charts from "../components/Charts.jsx";
+import { canonicalName, titleCase } from "../utils/players";
 
-// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
-// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
+const auth = btoa(
+    `${import.meta.env.CHALLONGE_USERNAME}:${import.meta.env.CHALLONGE_API_KEY}`,
+);
+
+const tournamentsRes = await fetch(
+    "https://api.challonge.com/v1/tournaments.json",
+    {
+        headers: {
+            Authorization: `Basic ${auth}`,
+            Accept: "application/json",
+        },
+    },
+);
+
+const tournaments = await tournamentsRes.json();
+
+const regularTournaments = tournaments.filter(
+    (t) =>
+        t.tournament.name.toLowerCase().includes("wjet") &&
+        !t.tournament.name.toLowerCase().includes("db"),
+);
+
+let stats = {};
+
+await Promise.all(
+    regularTournaments.map(async (t) => {
+        const tid = t.tournament.id;
+
+        const [participantsRes, matchesRes] = await Promise.all([
+            fetch(
+                `https://api.challonge.com/v1/tournaments/${tid}/participants.json`,
+                {
+                    headers: {
+                        Authorization: `Basic ${auth}`,
+                    },
+                },
+            ),
+            fetch(
+                `https://api.challonge.com/v1/tournaments/${tid}/matches.json`,
+                {
+                    headers: {
+                        Authorization: `Basic ${auth}`,
+                    },
+                },
+            ),
+        ]);
+
+        const participants = await participantsRes.json();
+        const matches = await matchesRes.json();
+        const idToName = Object.fromEntries(
+            participants.map((p) => [p.participant.id, p.participant.name]),
+        );
+
+        matches.forEach((m) => {
+            const { player1_id, player2_id, winner_id } = m.match;
+
+            [player1_id, player2_id].forEach((pid) => {
+                const name = canonicalName(idToName[pid] ?? `Unknown (${pid})`);
+                if (!stats[name]) {
+                    stats[name] = {
+                        name,
+                        matches: 0,
+                        wins: 0,
+                        losses: 0,
+                        rings: 0,
+                    };
+                }
+                stats[name].matches += 1;
+            });
+
+            if (winner_id) {
+                const name = canonicalName(
+                    idToName[winner_id] ?? `Unknown (${winner_id})`,
+                );
+                stats[name].wins += 1;
+            }
+
+            const loser_id = [player1_id, player2_id].find(
+                (pid) => pid !== winner_id,
+            );
+            if (loser_id) {
+                const name = canonicalName(
+                    idToName[loser_id] ?? `Unknown (${loser_id})`,
+                );
+                stats[name].losses += 1;
+            }
+        });
+
+        const winner = participants.find((p) => p.participant.final_rank === 1);
+        if (winner) {
+            const name = canonicalName(winner.participant.name);
+            if (!stats[name]) {
+                stats[name] = {
+                    name,
+                    matches: 0,
+                    wins: 0,
+                    losses: 0,
+                    rings: 0,
+                };
+            }
+            stats[name].rings += 1;
+        }
+    }),
+);
+
+const playerList = Object.values(stats)
+    .map((p) => ({
+        ...p,
+        winPct: p.matches > 0 ? (p.wins / p.matches) * 100 : 0,
+    }))
+    .sort((a, b) => b.rings - a.rings);
+
+const encodedData = encodeURIComponent(JSON.stringify(playerList));
 ---
 
 <Layout>
-	<Welcome />
+    <h1>🏆 WJET Challonge Tracker</h1>
+
+    <nav>
+        <ul>
+            <li><a href="/tournaments">View Tournaments</a></li>
+            <li><a href="/players">View Player Stats</a></li>
+        </ul>
+    </nav>
+
+    <section>
+        <h2>Summary Charts</h2>
+        <Charts client:load data={playerList} />
+    </section>
 </Layout>

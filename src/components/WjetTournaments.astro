@@ -1,0 +1,151 @@
+---
+// src/components/WjetTournaments.astro
+const auth = btoa(
+    `${import.meta.env.CHALLONGE_USERNAME}:${import.meta.env.CHALLONGE_API_KEY}`,
+);
+
+const tournamentsRes = await fetch(
+    "https://api.challonge.com/v1/tournaments.json",
+    {
+        headers: {
+            Authorization: `Basic ${auth}`,
+            Accept: "application/json",
+        },
+    },
+);
+
+const tournaments = await tournamentsRes.json();
+
+const wjetTournaments = tournaments.filter((t) =>
+    t.tournament.name.toLowerCase().includes("wjet"),
+);
+
+let playerStats: Record<
+    string,
+    {
+        name: string;
+        matchesPlayed: number;
+        wins: number;
+        losses: number;
+    }
+> = {};
+
+const enriched = await Promise.all(
+    wjetTournaments.map(async (t) => {
+        const tid = t.tournament.id;
+
+        // 1. Get participants
+        const participantsRes = await fetch(
+            `https://api.challonge.com/v1/tournaments/${tid}/participants.json`,
+            {
+                headers: {
+                    Authorization: `Basic ${auth}`,
+                    Accept: "application/json",
+                },
+            },
+        );
+        const participants = await participantsRes.json();
+
+        const idToName = Object.fromEntries(
+            participants.map((p) => [p.participant.id, p.participant.name]),
+        );
+
+        // 2. Get matches
+        const matchesRes = await fetch(
+            `https://api.challonge.com/v1/tournaments/${tid}/matches.json`,
+            {
+                headers: {
+                    Authorization: `Basic ${auth}`,
+                    Accept: "application/json",
+                },
+            },
+        );
+        const matches = await matchesRes.json();
+
+        // 3. Aggregate stats
+        matches.forEach((m) => {
+            const { player1_id, player2_id, winner_id } = m.match;
+
+            [player1_id, player2_id].forEach((pid) => {
+                if (!playerStats[pid]) {
+                    playerStats[pid] = {
+                        name: idToName[pid] ?? `Unknown (${pid})`,
+                        matchesPlayed: 0,
+                        wins: 0,
+                        losses: 0,
+                    };
+                }
+                playerStats[pid].matchesPlayed += 1;
+            });
+
+            if (playerStats[winner_id]) {
+                playerStats[winner_id].wins += 1;
+            }
+
+            const loser_id = [player1_id, player2_id].find(
+                (pid) => pid !== winner_id,
+            );
+            if (loser_id && playerStats[loser_id]) {
+                playerStats[loser_id].losses += 1;
+            }
+        });
+
+        return {
+            id: tid,
+            name: t.tournament.name,
+            participants,
+            matches,
+        };
+    }),
+);
+
+const statsArray = Object.values(playerStats).sort((a, b) => b.wins - a.wins);
+---
+
+<section>
+    <h2>Player Stats Across All WJET Tournaments</h2>
+    <table border="1" cellpadding="6" cellspacing="0">
+        <thead>
+            <tr>
+                <th>Player</th>
+                <th>Matches</th>
+                <th>Wins</th>
+                <th>Losses</th>
+            </tr>
+        </thead>
+        <tbody>
+            {
+                statsArray.map((player) => (
+                    <tr>
+                        <td>{player.name}</td>
+                        <td>{player.matchesPlayed}</td>
+                        <td>{player.wins}</td>
+                        <td>{player.losses}</td>
+                    </tr>
+                ))
+            }
+        </tbody>
+    </table>
+</section>
+
+<section>
+    <h2>WJET Tournaments</h2>
+    {
+        enriched.length === 0 ? (
+            <p>No WJET tournaments found.</p>
+        ) : (
+            <ul>
+                {enriched.map((t) => (
+                    <li>
+                        <strong>{t.name}</strong>
+                        <ul>
+                            {t.participants.map((p) => (
+                                <li>{p.participant.name}</li>
+                            ))}
+                        </ul>
+                    </li>
+                ))}
+            </ul>
+        )
+    }
+</section>
